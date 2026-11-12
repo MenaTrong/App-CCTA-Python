@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "host": "10.0.0.10",
+  "port": 1521,
+  "service_name": "HISPRO",
+  "user": "ccta_readonly",
+  "password": "mat-khau-o-day",
+  "poll_seconds": 10
+}

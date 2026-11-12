@@ -1,0 +1,9 @@
+{
+  "host": "192.168.107.141",
+  "port": 1521,
+  "service_name": "orclhis",
+  "user": "HIS_RS",
+  "poll_seconds": 60,
+  "enabled": true,
+  "password_encrypted": "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAqEaUumWw+E+5wNpJB+jl2AQAAAACAAAAAAAQZgAAAAEAACAAAAD+uLNyGpkLeOz57jf1JU0saKVekYJcXkvm4EF3t+e3LAAAAAAOgAAAAAIAACAAAAC4bPn6RcAnZFgfk4gAw8neZpGkZlgNOueWAND0vQsx/BAAAAC36n25PoI7clG1N5eikmNCQAAAALAbRwb3f1RW1TRKnm+5FQLc1cHNzmrRjXRALZKBLmW18ABJM232BAeatvFKgcHYDD2UyZAiK0EiX1Qy4TVeNMA="
+}
