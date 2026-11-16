@@ -848,14 +848,16 @@ class AlertPanel(tk.Tk):
             self._his_seen = {p.id for p in store.patients}
             top = max(store.patients, key=lambda p: p.saved_at, default=None)
             newer = top is not None and (self._his_latest is None or top.saved_at > self._his_latest)
-            if newer:
+            menu_open = getattr(self, "_menu_open", False)   # đang mở danh sách/menu: để lần đọc sau mới chuyển
+            if newer and not menu_open:
                 self._his_latest = top.saved_at
-            if top is None:
+            if top is None or menu_open:
                 pass
             elif first_load:
                 if self.patient is None:
                     self.load_patient(top, pop=True)
-            elif newer and (self.patient is None or top.id != self.patient.id)                     and self.view not in (self.clinic_view, self.doctor_view):
+            elif newer and (self.patient is None or top.id != self.patient.id) \
+                    and self.view not in (self.clinic_view, self.doctor_view):
                 # START_TIME mới nhất = bác sĩ vừa bấm bắt đầu xử lý bệnh nhân này trên HIS: chuyển sang ngay.
                 # Lựa chọn đang nhập dở của bệnh nhân trước vẫn giữ, mở lại bệnh nhân đó là thấy.
                 self.load_patient(top, pop=True)
@@ -958,11 +960,39 @@ class AlertPanel(tk.Tk):
         self.reason_var = tk.StringVar(value=REFUSE_REASONS[0])
         self.reason_row = tk.Frame(body, bg=T.SURFACE)
         label(self.reason_row, "Lý do không chỉ định", T.SMALL_BOLD, T.FG).pack(anchor="w")
-        om = tk.OptionMenu(self.reason_row, self.reason_var, *REFUSE_REASONS)
-        om.configure(font=T.FONT, bg=T.SURFACE, fg=T.FG, activebackground=T.HOVER, relief="flat", anchor="w",
-                     highlightthickness=1, highlightbackground=T.LINE, bd=0, indicatoron=True, cursor="hand2")
-        om["menu"].configure(font=T.FONT)
-        om.pack(fill="x", pady=(px(3), 0))
+        # Không dùng tk.OptionMenu: trên Windows nó mở danh sách đè mục đang chọn lên ô, nên ở khung sát đáy
+        # màn hình danh sách bị nhảy lệch. Ở đây danh sách luôn mở ngay dưới ô (hoặc ngay trên nếu thiếu chỗ).
+        box = tk.Frame(self.reason_row, bg=T.SURFACE, highlightthickness=1, highlightbackground=T.LINE,
+                       cursor="hand2")
+        box.pack(fill="x", pady=(px(3), 0))
+        val = tk.Label(box, textvariable=self.reason_var, font=T.FONT, bg=T.SURFACE, fg=T.FG, anchor="w")
+        val.pack(side="left", fill="x", expand=True, padx=(px(8), 0), pady=px(4))
+        arrow = tk.Label(box, text="▾", font=T.FONT, bg=T.SURFACE, fg=T.MUTED)
+        arrow.pack(side="right", padx=px(8))
+        menu = tk.Menu(box, tearoff=0, font=T.FONT)
+        for r in REFUSE_REASONS:
+            menu.add_radiobutton(label=r, variable=self.reason_var, value=r)
+
+        def open_menu(_e=None):
+            menu.update_idletasks()
+            x, y, h = box.winfo_rootx(), box.winfo_rooty(), box.winfo_height()
+            mh = menu.winfo_reqheight()
+            below = y + h
+            y = below if below + mh <= box.winfo_vrooty() + box.winfo_screenheight() - px(40) else y - mh
+            # Như menu ⋯: tạm bỏ "luôn trên cùng" (_keep_on_top nâng khung mỗi 2 giây sẽ đóng mất danh sách)
+            self._menu_open = True
+            self.attributes("-topmost", False)
+            try:
+                menu.tk_popup(x, max(0, y))
+            finally:
+                menu.grab_release()
+                self._menu_open = False
+                self.after(200, lambda: self.attributes("-topmost", True))
+
+        for w in (box, val, arrow):
+            w.bind("<Button-1>", open_menu)
+            w.bind("<Enter>", lambda e: [c.configure(bg=T.HOVER) for c in (box, val, arrow)])
+            w.bind("<Leave>", lambda e: [c.configure(bg=T.SURFACE) for c in (box, val, arrow)])
 
         self.result_foot = tk.Frame(f, bg=T.SURFACE)
         self.result_foot.pack(fill="x", padx=px(16), pady=(px(12), px(14)))

@@ -65,7 +65,7 @@ def classify(visits: list[dict]) -> list[dict]:
 
 class NoActionCard(Card):
     def __init__(self, parent, stats):
-        super().__init__(parent, "Không thao tác trên app", body_pad=False)
+        super().__init__(parent, "Thống kê chi tiết", body_pad=False)
         self.stats = stats
         self.visits: list[dict] | None = None
         self.key = None                 # (từ ngày, đến ngày, phòng) của dữ liệu đã đọc
