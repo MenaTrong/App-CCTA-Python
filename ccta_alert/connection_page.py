@@ -81,7 +81,7 @@ class ConnectionPage(tk.Frame):
         safe = Card(root, "Chỉ đọc: app bảo đảm thế nào")
         safe.pack(fill="x", pady=(0, px(12)))
         for k, v in [
-            ("Câu lệnh", "Chỉ có 4 câu SELECT viết sẵn trong app (xem bên dưới). Ngày, mã phòng, mã bệnh nhân, mã dịch vụ "
+            ("Câu lệnh", "Chỉ có 5 câu SELECT viết sẵn trong app (xem bên dưới). Ngày, mã phòng, mã bệnh nhân, mã dịch vụ "
                         "truyền bằng tham số."),
             ("Kiểm tra", "Trước khi chạy, app từ chối mọi câu không phải SELECT, có dấu ';', hoặc có INSERT, UPDATE, "
                          "DELETE, MERGE, DDL, FOR UPDATE…"),
@@ -101,7 +101,10 @@ class ConnectionPage(tk.Frame):
                 + "\n-- Dự phòng, chỉ dùng nếu HIS không có cột TDL_PATIENT_CODE" + his.SQL_PATIENTS_NO_CODE
                 + "\n-- Đã thực hiện dịch vụ chưa (nhãn cạnh tên bệnh nhân; :c0, :c1… là mã dịch vụ)"
                 + his.SQL_HISTORY.format(who="t.TDL_PATIENT_CODE", codes=":c0, :c1, …")
-                + "\n-- Tab Xuất báo cáo" + his.SQL_REPORT.format(codes=":c0, :c1, …"))
+                + "\n-- Tab Xuất báo cáo" + his.SQL_REPORT.format(codes=":c0, :c1, …")
+                + "\n-- Thống kê: lượt khám để đếm bệnh nhân không thao tác (:r0, :r1… là mã phòng)"
+                + his.SQL_VISITS.format(pcode="t.TDL_PATIENT_CODE AS ma_benh_nhan,\n    ",
+                                        pgroup="t.TDL_PATIENT_CODE, ", rooms=":r0, :r1, …"))
         txt = tk.Text(sql.body, font=("Consolas", 9), height=text.count("\n") + 1, bg=T.BG, fg=T.FG, relief="flat",
                       bd=0, padx=px(10), pady=px(8), wrap="none")
         txt.insert("1.0", text)

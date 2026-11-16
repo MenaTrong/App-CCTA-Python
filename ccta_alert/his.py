@@ -1,7 +1,8 @@
 """Đọc dữ liệu từ HIS (Oracle). CHỈ ĐỌC — không bao giờ ghi, sửa hay xóa gì trong database.
 
 Các lớp bảo vệ:
-  1. Chỉ có các câu SELECT viết sẵn trong file này (SQL_CLINICS, SQL_PATIENTS, SQL_REPORT, SQL_HISTORY). Không có chỗ nào
+  1. Chỉ có các câu SELECT viết sẵn trong file này (SQL_CLINICS, SQL_PATIENTS, SQL_REPORT, SQL_HISTORY,
+     SQL_VISITS). Không có chỗ nào
      ghép SQL từ dữ liệu người dùng; giá trị (ngày, mã phòng, mã dịch vụ) truyền bằng bind variable
      (:tu, :den, :phong, :c0, :c1...).
   2. Trước khi chạy, `ensure_select()` kiểm tra câu lệnh: phải bắt đầu bằng SELECT/WITH, không có dấu ';',
@@ -122,6 +123,24 @@ WHERE
 ORDER BY sr.START_TIME DESC
 """
 HISTORY_MAX_ROWS = 20
+
+# Lượt khám (bệnh nhân × phòng × ngày) tại các phòng trong khoảng ngày, cho thống kê "Không thao tác trên app".
+# Cùng nguồn với SQL_PATIENTS (bệnh nhân hiện trên khung cảnh báo), gộp các y lệnh cùng ngày cùng phòng.
+# {pcode}: cột mã BN, để trống khi HIS không có cột TDL_PATIENT_CODE.
+SQL_VISITS = """
+SELECT
+    {pcode}t.TREATMENT_CODE AS ma_dieu_tri,
+    t.TDL_PATIENT_NAME AS ten_benh_nhan,
+    sr.EXECUTE_ROOM_ID AS ma_phong,
+    MIN(sr.START_TIME) AS bat_dau_kham
+FROM HIS_TREATMENT t
+JOIN HIS_SERVICE_REQ sr ON t.ID = sr.TREATMENT_ID
+WHERE
+    sr.START_TIME BETWEEN :tu AND :den
+    AND sr.EXECUTE_ROOM_ID IN ({rooms})
+GROUP BY {pgroup}t.TREATMENT_CODE, t.TDL_PATIENT_NAME, sr.EXECUTE_ROOM_ID, TRUNC(sr.START_TIME / 1000000)
+ORDER BY MIN(sr.START_TIME)
+"""
 DEFAULT_REPORT_CODES = ["HA-N0300-043", "HA-N0200-001", "HA-N0300-027", "HA-N0300-042"]
 SERVICE_CODE = re.compile(r"^[A-Za-z0-9._/-]{1,40}$")
 
@@ -426,6 +445,31 @@ class HisClient:
                 r[k] = _his_time(r.get(k))
         return rows[:REPORT_MAX_ROWS], len(rows) > REPORT_MAX_ROWS
 
+
+    def fetch_visits(self, start: date, end: date, room_ids: list[int]) -> tuple[list[dict], bool]:
+        """Lượt khám tại các phòng từ ngày start đến hết ngày end. Trả về (các dòng, có bị cắt bớt)."""
+        room_ids = [int(r) for r in room_ids]
+        if not room_ids:
+            return [], False
+        params: dict[str, Any] = {"tu": _his_num(datetime.combine(start, time(0, 0, 0))),
+                                  "den": _his_num(datetime.combine(end, time(23, 59, 59)))}
+        params.update({f"r{i}": r for i, r in enumerate(room_ids)})
+        rooms = ", ".join(f":r{i}" for i in range(len(room_ids)))
+
+        def sql(with_code: bool) -> str:
+            return SQL_VISITS.format(pcode="t.TDL_PATIENT_CODE AS ma_benh_nhan,\n    " if with_code else "",
+                                     pgroup="t.TDL_PATIENT_CODE, " if with_code else "", rooms=rooms)
+        global no_patient_code
+        try:
+            rows = self.query(sql(not no_patient_code), params, REPORT_MAX_ROWS + 1)
+        except Exception as e:                       # HIS không có cột TDL_PATIENT_CODE
+            if no_patient_code or "ORA-00904" not in str(e) or "TDL_PATIENT_CODE" not in str(e).upper():
+                raise
+            no_patient_code = True
+            rows = self.query(sql(False), params, REPORT_MAX_ROWS + 1)
+        for r in rows:
+            r["bat_dau_kham"] = _his_time(r.get("bat_dau_kham"))
+        return rows[:REPORT_MAX_ROWS], len(rows) > REPORT_MAX_ROWS
 
     def fetch_history(self, patient_id: str, codes: list[str]) -> list[dict]:
         """Các lần bệnh nhân có y lệnh với mã dịch vụ trong danh sách, mới nhất trước (tối đa HISTORY_MAX_ROWS).

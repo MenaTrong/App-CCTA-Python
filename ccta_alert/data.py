@@ -4,7 +4,9 @@
   Chưa cấu hình thì app không có bệnh nhân nào, và nhắc mở tab "Kết nối HIS".
 - Quyết định của bác sĩ (Chỉ định / Không chỉ định): lưu vào alerts.jsonl, mỗi dòng một bản ghi JSON.
   Mở app sẽ đọc lại.
-- Nhiều máy: chép alerts.jsonl của các máy về một máy, dùng "Gộp dữ liệu" ở màn Thống kê (Store.merge_files).
+- Lần đánh giá mức Rất thấp (không cần quyết định): lưu riêng vào assessed.jsonl, chỉ để biết bệnh nhân đã được
+  thao tác trên app (thống kê "Không thao tác"); không tính vào các thống kê cảnh báo.
+- Nhiều máy: chép alerts.jsonl (và assessed.jsonl) của các máy về một máy, dùng "Gộp dữ liệu" ở màn Thống kê (Store.merge_files).
   Bản ghi trùng (đã có) tự bỏ qua, nên gộp lại nhiều lần cũng không đếm đôi.
 - Nơi lưu: cùng thư mục với CctaAlert.exe (chạy từ mã nguồn thì là thư mục dist). Nếu thư mục đó
   không ghi được (ví dụ C:\\Program Files) thì lưu vào %APPDATA%\\CctaAlert.
@@ -24,6 +26,7 @@ from typing import Callable
 from .rules import RiskLevel
 
 REFUSE_REASONS = [
+    "Đã chẩn đoán",
     "Bệnh nhân từ chối",
     "Chống chỉ định thuốc cản quang",
     "Suy thận (eGFR thấp)",
@@ -67,6 +70,7 @@ DATA_DIR = _pick_data_dir()
 MACHINE = (os.environ.get("COMPUTERNAME") or socket.gethostname() or "").upper()
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 ALERTS_FILE = os.path.join(DATA_DIR, "alerts.jsonl")      # quyết định của bác sĩ, mỗi dòng một bản ghi
+ASSESSED_FILE = os.path.join(DATA_DIR, "assessed.jsonl")  # lần đánh giá mức Rất thấp (không cần quyết định)
 HIS_CONFIG_FILE = os.path.join(DATA_DIR, "his.json")      # kết nối HIS (Oracle, chỉ đọc)
 
 
@@ -180,6 +184,7 @@ class AlertRecord:
     reason: str = ""
     treatment_code: str = ""   # mã điều trị lúc ra quyết định
     machine: str = ""          # tên máy ghi bản ghi (bản ghi cũ để trống)
+    kind: str = ""             # "" = quyết định (alerts.jsonl); "assessed" = đánh giá Rất thấp (assessed.jsonl)
 
     @property
     def key(self) -> tuple:
@@ -191,14 +196,15 @@ class AlertRecord:
             "time": self.time.isoformat(timespec="seconds"), "clinic": self.clinic, "doctor": self.doctor,
             "patient_id": self.patient_id, "patient_name": self.patient_name, "level": self.level.name,
             "percent": self.percent, "done": self.done, "reason": self.reason,
-            "treatment_code": self.treatment_code, "machine": self.machine}, ensure_ascii=False)
+            "treatment_code": self.treatment_code, "machine": self.machine,
+            **({"kind": self.kind} if self.kind else {})}, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, line: str) -> "AlertRecord":
         d = json.loads(line)
         return cls(datetime.fromisoformat(d["time"]), d["clinic"], d["doctor"], d["patient_id"], d["patient_name"],
                    RiskLevel[d["level"]], int(d["percent"]), bool(d["done"]), d.get("reason", ""),
-                   d.get("treatment_code", ""), d.get("machine", ""))
+                   d.get("treatment_code", ""), d.get("machine", ""), d.get("kind", ""))
 
 
 class Store:
@@ -209,6 +215,7 @@ class Store:
         self.his_status = "Đang kết nối HIS…" if his else "chưa cấu hình kết nối"
         self.his_ok: bool | None = None if his else False
         self.log: list[AlertRecord] = []
+        self.assessed: list[AlertRecord] = []          # đánh giá Rất thấp (không phải quyết định)
         self._listeners: list[Callable[[], None]] = []
         self.saved_count = 0          # số bản ghi đọc được từ file trên máy
         self.bad_lines = 0            # dòng hỏng trong file (bỏ qua)
@@ -249,18 +256,28 @@ class Store:
             fn()
         return ok
 
+    def add_assessed(self, rec: AlertRecord) -> bool:
+        """Ghi lần đánh giá mức Rất thấp (bác sĩ đã thao tác nhưng không cần quyết định)."""
+        rec.machine = rec.machine or MACHINE
+        rec.kind = "assessed"
+        self.assessed.append(rec)
+        ok = self._append(rec, ASSESSED_FILE)
+        for fn in self._listeners:
+            fn()
+        return ok
+
     # ------------------------------------------------------------------ lưu trên máy
-    def _append(self, rec: AlertRecord) -> bool:
+    def _append(self, rec: AlertRecord, path: str = ALERTS_FILE) -> bool:
         try:
             os.makedirs(DATA_DIR, exist_ok=True)
             broken_tail = False          # dòng cuối bị cắt dở (mất điện lúc ghi): xuống dòng trước khi ghi tiếp
             try:
-                with open(ALERTS_FILE, "rb") as r:
+                with open(path, "rb") as r:
                     r.seek(-1, os.SEEK_END)
                     broken_tail = r.read(1) != b"\n"
             except OSError:              # chưa có file hoặc file rỗng
                 pass
-            with open(ALERTS_FILE, "a", encoding="utf-8", newline="\n") as f:
+            with open(path, "a", encoding="utf-8", newline="\n") as f:
                 f.write(("\n" if broken_tail else "") + rec.to_json() + "\n")
                 f.flush()
                 os.fsync(f.fileno())
@@ -271,11 +288,12 @@ class Store:
             return False
 
     def merge_files(self, paths: list[str]) -> list[tuple[str, int, int, int, str]]:
-        """Gộp alerts.jsonl của máy khác vào máy này.
+        """Gộp alerts.jsonl (và assessed.jsonl) của máy khác vào máy này. Bản ghi đánh giá Rất thấp
+        (kind = "assessed") được ghi vào assessed.jsonl, còn lại vào alerts.jsonl.
         Trả về mỗi file: (tên file, số bản ghi mới, số trùng, số dòng hỏng, lỗi đọc file).
         Bản ghi mới được ghi thêm vào alerts.jsonl của máy này (một lần ghi), nên lần sau mở app vẫn còn."""
-        seen = {r.key for r in self.log}
-        report, fresh = [], []
+        seen = {r.key for r in self.log} | {("a",) + r.key for r in self.assessed}
+        report, fresh, fresh_a = [], [], []
         for path in paths:
             added = dup = bad = 0
             err = ""
@@ -293,27 +311,32 @@ class Store:
                 except (ValueError, KeyError, TypeError):
                     bad += 1
                     continue
-                if r.key in seen:
+                k = ("a",) + r.key if r.kind == "assessed" else r.key
+                if k in seen:
                     dup += 1
                     continue
-                seen.add(r.key)
-                fresh.append(r)
+                seen.add(k)
+                (fresh_a if r.kind == "assessed" else fresh).append(r)
                 added += 1
             report.append((os.path.basename(path), added, dup, bad, err))
-        if fresh:
-            fresh.sort(key=lambda r: r.time)
-            try:
-                os.makedirs(DATA_DIR, exist_ok=True)
-                with open(ALERTS_FILE, "a", encoding="utf-8", newline="\n") as f:
-                    f.write("".join(r.to_json() + "\n" for r in fresh))
-                    f.flush()
-                    os.fsync(f.fileno())
-                self.save_error = ""
-            except OSError as e:          # không ghi được: không đưa vào thống kê, báo lỗi
-                self.save_error = str(e)
-                return [(n, 0, d, b, f"Không ghi được vào {ALERTS_FILE}: {e}") for n, _, d, b, _ in report]
-            self.log.extend(fresh)
-            self.log.sort(key=lambda r: r.time)
+        if fresh or fresh_a:
+            for recs, path in ((fresh, ALERTS_FILE), (fresh_a, ASSESSED_FILE)):
+                if not recs:
+                    continue
+                recs.sort(key=lambda r: r.time)
+                try:
+                    os.makedirs(DATA_DIR, exist_ok=True)
+                    with open(path, "a", encoding="utf-8", newline="\n") as f:
+                        f.write("".join(r.to_json() + "\n" for r in recs))
+                        f.flush()
+                        os.fsync(f.fileno())
+                    self.save_error = ""
+                except OSError as e:          # không ghi được: không đưa vào thống kê, báo lỗi
+                    self.save_error = str(e)
+                    return [(n, 0, d, b, f"Không ghi được vào {path}: {e}") for n, _, d, b, _ in report]
+                target = self.assessed if path == ASSESSED_FILE else self.log
+                target.extend(recs)
+                target.sort(key=lambda r: r.time)
             for fn in self._listeners:
                 fn()
         return report
@@ -345,6 +368,17 @@ class Store:
             except (ValueError, KeyError, TypeError):
                 self.bad_lines += 1     # ví dụ dòng cuối bị cắt do mất điện: bỏ qua, giữ phần còn lại
         self.log.sort(key=lambda r: r.time)
+        try:
+            with open(ASSESSED_FILE, encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            self.assessed.append(AlertRecord.from_json(line))
+                        except (ValueError, KeyError, TypeError):
+                            pass
+        except OSError:
+            pass
+        self.assessed.sort(key=lambda r: r.time)
 
     def last_indication(self, patient_id: str) -> AlertRecord | None:
         """Lần gần nhất bệnh nhân được chỉ định chụp CT mạch vành (để không chỉ định lại)."""

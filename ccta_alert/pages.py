@@ -95,6 +95,10 @@ class StatsPage(tk.Frame):
         fr, self.t_reason = make_tree(c2.body, [("r", "Lý do", 220, "w", True), ("n", "Số ca", 70, "e", False)], height=5)
         fr.pack(fill="both", expand=True, padx=px(6), pady=px(4))
 
+        from .noaction import NoActionCard
+        self.noaction = NoActionCard(root, self)
+        self.noaction.pack(fill="x", pady=(0, px(12)))
+
         c3 = Card(root, "Nhật ký cảnh báo", body_pad=False)
         c3.pack(fill="x")
         fr, self.t_log = make_tree(c3.body, [
@@ -148,7 +152,7 @@ class StatsPage(tk.Frame):
     def _merge(self):
         from tkinter import filedialog, messagebox
         paths = filedialog.askopenfilenames(
-            parent=self, title="Chọn file alerts.jsonl của các máy khác (chọn được nhiều file)",
+            parent=self, title="Chọn file alerts.jsonl / assessed.jsonl của các máy khác (chọn được nhiều file)",
             filetypes=[("Dữ liệu CCTA Alert", "*.jsonl"), ("Tất cả", "*.*")])
         if not paths:
             return
@@ -181,6 +185,8 @@ class StatsPage(tk.Frame):
         P = [e for e in L if self._in_period(e.time)]
         done = sum(e.done for e in P)
         self.shown_count = len(store.log)
+        if hasattr(self, "noaction"):
+            self.noaction.render()
 
         self.ref_lbl.configure(text=[f"{r:%d/%m/%Y}", f"{r:%m/%Y}", f"{r:%Y}"][self.period])
         lbl = [f"ngày {r:%d/%m/%Y}", f"tháng {r:%m/%Y}", f"năm {r:%Y}"][self.period]

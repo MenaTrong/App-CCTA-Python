@@ -903,6 +903,9 @@ class AlertPanel(tk.Tk):
             self._show_err("counts", "Chọn điểm triệu chứng và số yếu tố nguy cơ trước khi xác nhận.")
             return
         self.ev = rules.evaluate(p.age, p.male, p.symptom_score, p.risk_factor_count)
+        if self.ev.level == RiskLevel.VERY_LOW:     # không cần quyết định, nhưng ghi lại là bác sĩ đã đánh giá
+            store.add_assessed(AlertRecord(datetime.now(), self.clinic, self.doctor, p.id, p.name, self.ev.level,
+                                           self.ev.percent, False, "", p.treatment_code))
         self._show(self._build_result(self.ev))
         self._sound(self.ev.level)
 

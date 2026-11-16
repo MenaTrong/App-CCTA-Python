@@ -38,7 +38,7 @@ Cài đặt (trên giao diện):
 
 **Chỉ đọc, không thao tác gì vào database:**
 
-- Trong app chỉ có 4 câu SELECT viết sẵn (`ccta_alert/his.py`): danh sách phòng (`HIS_EXECUTE_ROOM`),
+- Trong app chỉ có 5 câu SELECT viết sẵn (`ccta_alert/his.py`): danh sách phòng (`HIS_EXECUTE_ROOM`),
   bệnh nhân khám hôm nay tại phòng (`HIS_TREATMENT` + `HIS_SERVICE_REQ`) và báo cáo dịch vụ của tab Xuất báo cáo,
   lịch sử dịch vụ của một bệnh nhân (thêm `HIS_SERE_SERV`). Ngày, mã phòng và mã dịch vụ truyền bằng bind variable.
 - Trước khi chạy, app kiểm tra câu lệnh: phải là SELECT, không có `;`, không có INSERT / UPDATE / DELETE / MERGE /
@@ -94,6 +94,12 @@ từng có y lệnh với các mã dịch vụ trong danh sách của tab Xuất
 "Chưa thực hiện", "Đã thực hiện dd/mm/yyyy" (lần gần nhất; "Đã chỉ định" nếu y lệnh chưa kết thúc), viền cam kèm ⚠ nếu
 trong vòng 2 năm. Bấm vào nhãn để xem các lần gần nhất. Kết quả được dùng lại trong 2 phút.
 
+**Không thao tác trên app** (màn Thống kê, dưới bảng Lý do): bấm **Đọc từ HIS** để đọc các lượt khám (bệnh nhân × phòng ×
+ngày) trong kỳ đang xem (ngày / tháng / năm) tại phòng đang chọn, hoặc mọi phòng có dùng app. Lượt khám được tính là
+đã thao tác nếu có quyết định (`alerts.jsonl`) hoặc đã đánh giá mức Rất thấp (`assessed.jsonl`) cùng mã điều trị, hoặc
+cùng mã bệnh nhân trong ngày; còn lại là **không thao tác**. Có số lượt theo phòng, danh sách bệnh nhân và nút Xuất Excel.
+Đổi kỳ / phòng thì bấm đọc lại; có quyết định mới thì tự so lại, không đọc lại HIS.
+
 **Xuất báo cáo:** chọn khoảng ngày (tối đa 366 ngày), sửa danh sách mã dịch vụ nếu cần (mặc định
 `HA-N0300-043, HA-N0200-001, HA-N0300-027, HA-N0300-042`; bấm "Lưu danh sách mã" để giữ cho lần sau, lưu trong
 `settings.json`), bấm **Lấy dữ liệu từ HIS**, rồi **Xuất Excel…** (.xlsx) hoặc **Xuất CSV…**. Lọc theo
@@ -135,6 +141,8 @@ dist\
 
 Các file:
 
+- `assessed.jsonl`: mỗi lần bấm Xác nhận ra mức Rất thấp (không cần quyết định), app ghi một dòng, chỉ để biết bệnh
+  nhân đã được thao tác. Không tính vào thống kê cảnh báo. Khi gộp dữ liệu nhiều máy, chọn cả file này.
 - `alerts.jsonl`: mỗi lần bác sĩ bấm **Chỉ định chụp** hoặc **Không chỉ định**, app ghi thêm một dòng
   (giờ, phòng khám, mã bác sĩ, mã và tên BN, mức cảnh báo, %, quyết định, lý do). File được ghi ngay lúc bấm,
   nên tắt app hay mất điện cũng không mất. Mở app sẽ đọc lại file này cho Thống kê và dòng "đã được chỉ định chụp".
